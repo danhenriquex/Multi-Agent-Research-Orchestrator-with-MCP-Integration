@@ -17,9 +17,7 @@ class SearchCache:
 
     async def connect(self) -> None:
         try:
-            self._client = aioredis.from_url(
-                settings.redis_url, decode_responses=True
-            )
+            self._client = aioredis.from_url(settings.redis_url, decode_responses=True)
             await self._client.ping()
             logger.info("Redis cache connected", extra={"url": settings.redis_url})
         except Exception as exc:

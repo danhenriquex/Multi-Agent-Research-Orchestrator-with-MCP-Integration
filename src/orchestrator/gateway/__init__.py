@@ -6,6 +6,7 @@ Implements dynamic routing + fallback chains.
 """
 
 import json
+
 import structlog
 from fastmcp import Client
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -46,11 +47,16 @@ class MCPGateway:
                 log.info("tool_call_success", tool=tool_name, actual_tool=actual_tool)
                 return result
             except Exception as exc:
-                log.warning("tool_call_failed", tool=tool_name, actual_tool=actual_tool, error=str(exc))
+                log.warning(
+                    "tool_call_failed", tool=tool_name, actual_tool=actual_tool, error=str(exc)
+                )
                 last_error = exc
 
         log.error("all_fallbacks_exhausted", tool=tool_name, error=str(last_error))
-        return {"error": f"All fallbacks exhausted for '{tool_name}': {last_error}", "degraded": True}
+        return {
+            "error": f"All fallbacks exhausted for '{tool_name}': {last_error}",
+            "degraded": True,
+        }
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=4))
     async def _call_mcp(self, server_url: str, tool_name: str, arguments: dict) -> dict:
@@ -64,7 +70,11 @@ class MCPGateway:
 
         # Fallback: parse .content[0].text as JSON
         if hasattr(result, "content") and result.content:
-            text = result.content[0].text if hasattr(result.content[0], "text") else str(result.content[0])
+            text = (
+                result.content[0].text
+                if hasattr(result.content[0], "text")
+                else str(result.content[0])
+            )
             try:
                 return json.loads(text)
             except Exception:

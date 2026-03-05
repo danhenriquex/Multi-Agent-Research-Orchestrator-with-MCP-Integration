@@ -5,6 +5,7 @@ Every module then just does: log = structlog.get_logger()
 """
 
 import logging
+
 import structlog
 
 

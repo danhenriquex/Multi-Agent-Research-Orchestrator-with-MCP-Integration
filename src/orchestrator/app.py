@@ -41,14 +41,15 @@ log = structlog.get_logger()
 
 # ── Config from environment ───────────────────────────────────────────────────
 
-OPENAI_API_KEY         = os.getenv("OPENAI_API_KEY", "")
-SEARCH_MCP_URL         = os.getenv("SEARCH_MCP_URL", "http://localhost:8001")
-SUMMARIZATION_MCP_URL  = os.getenv("SUMMARIZATION_MCP_URL", "http://localhost:8002")
-DATABASE_URL           = os.getenv("DATABASE_URL", "")
-MODEL                  = os.getenv("MODEL", "gpt-4o-mini")
-PHOENIX_ENDPOINT       = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:4317")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+SEARCH_MCP_URL = os.getenv("SEARCH_MCP_URL", "http://localhost:8001")
+SUMMARIZATION_MCP_URL = os.getenv("SUMMARIZATION_MCP_URL", "http://localhost:8002")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+MODEL = os.getenv("MODEL", "gpt-4o-mini")
+PHOENIX_ENDPOINT = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:4317")
 
 # ── OpenTelemetry → Phoenix ───────────────────────────────────────────────────
+
 
 def setup_tracing():
     resource = Resource.create({"service.name": "research-agent-orchestrator"})
@@ -58,9 +59,11 @@ def setup_tracing():
     trace.set_tracer_provider(provider)
     return trace.get_tracer("orchestrator")
 
+
 tracer = setup_tracing()
 
 # ── Database helpers ──────────────────────────────────────────────────────────
+
 
 def get_db():
     if not DATABASE_URL:
@@ -72,7 +75,9 @@ def get_db():
         return None
 
 
-def save_query(conn, query: str, status: str, result: dict | None, error: str | None, duration_ms: int):
+def save_query(
+    conn, query: str, status: str, result: dict | None, error: str | None, duration_ms: int
+):
     if not conn:
         return
     try:
@@ -115,7 +120,9 @@ async def lifespan(_app: FastAPI):
         summarization_mcp_url=SUMMARIZATION_MCP_URL,
         model=MODEL,
     )
-    log.info("orchestrator_ready", search_mcp=SEARCH_MCP_URL, summarization_mcp=SUMMARIZATION_MCP_URL)
+    log.info(
+        "orchestrator_ready", search_mcp=SEARCH_MCP_URL, summarization_mcp=SUMMARIZATION_MCP_URL
+    )
     yield
     if _agent:
         await _agent.close()
@@ -126,6 +133,7 @@ app = FastAPI(title="research-agent-orchestrator", lifespan=lifespan)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health():
@@ -174,7 +182,10 @@ async def research(req: ResearchRequest):
             return ResearchResponse(
                 query=req.query,
                 answer=f"[ERROR] Research failed: {error}",
-                sources=[], plan=[], tool_calls=[], duration_ms=duration_ms,
+                sources=[],
+                plan=[],
+                tool_calls=[],
+                duration_ms=duration_ms,
             )
 
 
@@ -190,13 +201,15 @@ async def research_stream(req: ResearchRequest):
         try:
             async for chunk in _agent.run(req.query):
                 if isinstance(chunk, str):
-                    yield chunk   # SSE chunk already formatted as "data: ...\n\n"
+                    yield chunk  # SSE chunk already formatted as "data: ...\n\n"
                 elif isinstance(chunk, dict):
                     result = chunk
                     # Send final result as JSON event
                     yield f"data: {json.dumps({'type': 'result', **chunk})}\n\n"
 
-            save_query(conn, req.query, "complete", result, None, result["duration_ms"] if result else 0)
+            save_query(
+                conn, req.query, "complete", result, None, result["duration_ms"] if result else 0
+            )
 
         except Exception as exc:
             error = str(exc)

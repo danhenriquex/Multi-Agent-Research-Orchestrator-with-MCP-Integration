@@ -15,9 +15,9 @@ import structlog
 from fastmcp import FastMCP
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+from token_budget import count_tokens, truncate_to_budget
 
 from config import settings
-from token_budget import count_tokens, truncate_to_budget
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,9 @@ async def summarize_text(text: str, focus: str = "", max_length: str = "medium")
 
 
 @mcp.tool
-async def summarize_search_results(results: list[dict], query: str, max_length: str = "medium") -> dict:
+async def summarize_search_results(
+    results: list[dict], query: str, max_length: str = "medium"
+) -> dict:
     """Synthesize multiple search results into a coherent summary."""
     if not results:
         return {"summary": "No search results to summarize.", "sources": [], "input_tokens": 0}
@@ -94,7 +96,9 @@ async def summarize_search_results(results: list[dict], query: str, max_length: 
     formatted = f"Query: {query}\n\n"
     sources = []
     for i, r in enumerate(results, 1):
-        formatted += f"[{i}] {r.get('title','')}\nURL: {r.get('url','')}\n{r.get('snippet','')}\n\n"
+        formatted += (
+            f"[{i}] {r.get('title', '')}\nURL: {r.get('url', '')}\n{r.get('snippet', '')}\n\n"
+        )
         if r.get("url"):
             sources.append(r["url"])
 
@@ -108,7 +112,12 @@ async def summarize_search_results(results: list[dict], query: str, max_length: 
         summary = await _call_openai(system, text_trimmed)
     except Exception as exc:
         return {"summary": f"[ERROR] {exc}", "sources": sources, "input_tokens": tokens}
-    return {"summary": summary, "sources": sources[:10], "input_tokens": tokens, "truncated": truncated}
+    return {
+        "summary": summary,
+        "sources": sources[:10],
+        "input_tokens": tokens,
+        "truncated": truncated,
+    }
 
 
 @mcp.tool

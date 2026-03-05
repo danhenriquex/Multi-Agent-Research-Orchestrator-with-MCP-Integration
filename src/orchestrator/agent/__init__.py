@@ -14,6 +14,7 @@ Execution flow:
 """
 
 import time
+
 import structlog
 from openai import AsyncOpenAI
 
@@ -69,8 +70,7 @@ class ResearchAgent:
         plan = await self._planner.plan(query)
 
         plan_text = "\n".join(
-            f"  Step {s['step']}: [{s['tool']}] {s['input']} — {s['reason']}"
-            for s in plan
+            f"  Step {s['step']}: [{s['tool']}] {s['input']} — {s['reason']}" for s in plan
         )
         yield f"data: 📋 Plan:\n{plan_text}\n\n"
 
@@ -86,19 +86,25 @@ class ResearchAgent:
             else:
                 arguments = {"query": inp} if tool == "search" else {"text": inp}
 
-            yield f"data: 🔧 Step {step_num}: {tool}({inp[:60]}...)\n\n" if len(inp) > 60 else f"data: 🔧 Step {step_num}: {tool}({inp})\n\n"
+            yield (
+                f"data: 🔧 Step {step_num}: {tool}({inp[:60]}...)\n\n"
+                if len(inp) > 60
+                else f"data: 🔧 Step {step_num}: {tool}({inp})\n\n"
+            )
 
             t0 = time.time()
             result = await self._gateway.call_tool(tool, arguments)
             elapsed = round((time.time() - t0) * 1000)
 
-            tool_calls.append({
-                "step": step_num,
-                "tool": tool,
-                "input": inp,
-                "duration_ms": elapsed,
-                "degraded": result.get("degraded", False),
-            })
+            tool_calls.append(
+                {
+                    "step": step_num,
+                    "tool": tool,
+                    "input": inp,
+                    "duration_ms": elapsed,
+                    "degraded": result.get("degraded", False),
+                }
+            )
 
             # Accumulate search results for later summarization
             if tool == "search" and "results" in result:
@@ -115,8 +121,10 @@ class ResearchAgent:
 
         # Use the summary from the last summarize step if available,
         # otherwise do a direct synthesis pass with the LLM
-        final_answer = summary if "summary" in locals() and summary else await self._synthesize(
-            query, search_results
+        final_answer = (
+            summary
+            if "summary" in locals() and summary
+            else await self._synthesize(query, search_results)
         )
 
         duration_ms = round((time.time() - start) * 1000)
@@ -138,7 +146,7 @@ class ResearchAgent:
             return "No search results found to answer the query."
 
         context = "\n\n".join(
-            f"[{i+1}] {r.get('title', '')}\n{r.get('snippet', '')}"
+            f"[{i + 1}] {r.get('title', '')}\n{r.get('snippet', '')}"
             for i, r in enumerate(search_results[:5])
         )
 

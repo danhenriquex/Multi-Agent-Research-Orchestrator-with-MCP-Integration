@@ -70,7 +70,7 @@ class ReWOOPlanner:
             response = await self._client.chat.completions.create(
                 model=self._model,
                 max_tokens=500,
-                temperature=0.1,   # low temp = more deterministic plans
+                temperature=0.1,  # low temp = more deterministic plans
                 messages=[
                     {"role": "system", "content": PLAN_SYSTEM_PROMPT},
                     {"role": "user", "content": f"Research query: {query}"},

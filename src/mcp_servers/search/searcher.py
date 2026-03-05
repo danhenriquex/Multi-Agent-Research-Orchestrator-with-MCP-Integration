@@ -76,6 +76,7 @@ class ScrapeFallbackSearcher:
             line = lines[i]
             if 'class="result-link"' in line or "uddg=" in line:
                 import re
+
                 url_match = re.search(r'href="([^"]+)"', line)
                 title_match = re.search(r">([^<]+)<", line)
                 url = url_match.group(1) if url_match else ""

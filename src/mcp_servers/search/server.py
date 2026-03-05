@@ -13,11 +13,11 @@ import logging
 import time
 
 import structlog
-from fastmcp import FastMCP
-
 from cache import cache
-from config import settings
+from fastmcp import FastMCP
 from searcher import ScrapeFallbackSearcher, TavilySearcher
+
+from config import settings
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
