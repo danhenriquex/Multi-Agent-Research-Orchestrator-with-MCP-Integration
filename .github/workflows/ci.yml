@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run ruff linter
+        run: uv run ruff check .
+
+      - name: Run ruff formatter check
+        run: uv run ruff format --check .
+
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - name: search-mcp
+            dockerfile: src/mcp_servers/search/Dockerfile
+          - name: summarization-mcp
+            dockerfile: src/mcp_servers/summarization/Dockerfile
+          - name: orchestrator
+            dockerfile: src/orchestrator/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: false
+          tags: research-agent-${{ matrix.service.name }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'ENVEOF'
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
+          POSTGRES_PASSWORD=testpass
+          LOG_LEVEL=INFO
+          ENVEOF
+
+      - name: Start services
+        run: |
+          docker compose -p research-agent -f docker-compose.yml --env-file .env up -d \
+            redis postgres search-mcp summarization-mcp
+          echo "Waiting for services to be healthy..."
+          sleep 30
+
+      - name: Check search-mcp is up
+        run: |
+          docker compose -p research-agent exec -T search-mcp \
+            python3 -c "import socket; s=socket.create_connection(('localhost',8001),3); s.close(); print('search-mcp OK')"
+
+      - name: Check summarization-mcp is up
+        run: |
+          docker compose -p research-agent exec -T summarization-mcp \
+            python3 -c "import socket; s=socket.create_connection(('localhost',8002),3); s.close(); print('summarization-mcp OK')"
+
+      - name: Test MCP tool call (search)
+        run: |
+          docker compose -p research-agent run --rm orchestrator python3 -c "
+          import asyncio
+          from fastmcp import Client
+
+          async def test():
+              async with Client('http://search-mcp:8001/mcp') as client:
+                  tools = await client.list_tools()
+                  names = [t.name for t in tools]
+                  assert 'web_search' in names, f'web_search missing, got: {names}'
+                  assert 'cached_search' in names, f'cached_search missing, got: {names}'
+                  print('✓ search-mcp tools:', names)
+
+          asyncio.run(test())
+          "
+
+      - name: Test MCP tool call (summarization)
+        run: |
+          docker compose -p research-agent run --rm orchestrator python3 -c "
+          import asyncio
+          from fastmcp import Client
+
+          async def test():
+              async with Client('http://summarization-mcp:8002/mcp') as client:
+                  tools = await client.list_tools()
+                  names = [t.name for t in tools]
+                  assert 'summarize_text' in names, f'summarize_text missing, got: {names}'
+                  print('✓ summarization-mcp tools:', names)
+
+          asyncio.run(test())
+          "
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -p research-agent logs

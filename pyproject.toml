@@ -1,0 +1,66 @@
+[project]
+name = "research-agent"
+version = "0.1.0"
+description = "Multi-agent research system: MCP servers, ReWOO orchestration, streaming, graceful degradation"
+requires-python = ">=3.11"
+dependencies = [
+  # Orchestrator + agent loop
+  "smolagents>=1.5.0",
+  "anthropic>=0.28.0",
+  "mcp>=1.3.0",
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.30.1",
+  # MCP servers
+  "fastmcp>=2.3.3",
+  "httpx>=0.27.0",
+  # Data & validation
+  "pydantic>=2.7.1",
+  "pydantic-settings>=2.3.0",
+  # Observability
+  "arize-phoenix>=4.5.5",
+  "opentelemetry-sdk>=1.25.0",
+  "opentelemetry-exporter-otlp>=1.25.0",
+  # Storage
+  "redis>=5.0.6",
+  "psycopg2-binary>=2.9.9",
+  # Utilities
+  "structlog>=24.2.0",
+  "tenacity>=8.3.0",
+  "tiktoken>=0.7.0",
+]
+
+[dependency-groups]
+dev = [
+  "pre-commit>=3.7.0",
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.0",
+  "httpx>=0.27.0",
+]
+lint = [
+  "ruff>=0.4.0",
+]
+
+# ── src layout declaration ──────────────────────────────────────────────────
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+target-version = "py311"
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "F"]
+ignore = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["orchestrator", "mcp_servers", "shared", "config"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]

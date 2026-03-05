@@ -1,0 +1,45 @@
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Python ────────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── uv ────────────────────────────────────────────────────────────────────────
+# uv.lock should be committed - it ensures reproducible installs
+# remove this line if you want to ignore it
+# uv.lock
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+.docker/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Observability ─────────────────────────────────────────────────────────────
+phoenix_data/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+coverage.xml
