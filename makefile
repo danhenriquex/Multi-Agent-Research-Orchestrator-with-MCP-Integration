@@ -27,8 +27,8 @@ init: ## Bootstrap the project (install uv, deps, pre-commit, create .env)
 ######### Docker Compose #########
 .PHONY: up down down-volumes restart build update logs docker-prune
 
-up: ## Start all services in detached mode
-	$(COMPOSE_CMD) up -d
+up: ## Start all services in detached mode (2 min timeout)
+	$(COMPOSE_CMD) up -d --wait --wait-timeout 120
 
 down: ## Stop all services
 	$(COMPOSE_CMD) down
@@ -52,11 +52,17 @@ else
 	$(COMPOSE_CMD) logs -f
 endif
 
+rebuild: ## Rebuild and restart one service (usage: make rebuild s=search-agent)
+	$(COMPOSE_CMD) up -d --build $(s)
+
+rebuild-clean: ## Force rebuild with no cache (usage: make rebuild-clean s=search-agent)
+	$(COMPOSE_CMD) build --no-cache $(s) && $(COMPOSE_CMD) up -d $(s)
+
 docker-prune: ## Remove unused Docker containers, images and volumes
 	docker system prune -a --volumes -f
 
 ######### Health & Observability #########
-.PHONY: health phoenix
+.PHONY: health phoenix phoenix-start phoenix-logs status debug
 
 health: ## Check health of all running services
 	@echo "\n=== Service Health ==="
@@ -65,9 +71,28 @@ health: ## Check health of all running services
 	@curl -sf http://localhost:8000/health | python3 -m json.tool && echo "✓ orchestrator" || echo "✗ orchestrator (not running?)"
 	@echo ""
 
-phoenix: ## Open Phoenix observability UI in browser
+phoenix-start: ## Start Phoenix container if not running
+	$(COMPOSE_CMD) up -d phoenix
+	@echo "Phoenix starting at http://localhost:6006 (may take a few seconds)"
+
+phoenix-logs: ## Tail Phoenix logs
+	$(COMPOSE_CMD) logs -f phoenix
+
+status: ## Show status of all containers
+	$(COMPOSE_CMD) ps
+
+debug: ## Show logs for phoenix and orchestrator (most common failure points)
+	@echo "\n=== Phoenix logs ==="
+	$(COMPOSE_CMD) logs --tail=30 phoenix
+	@echo "\n=== Orchestrator logs ==="
+	$(COMPOSE_CMD) logs --tail=30 orchestrator
+
+phoenix: ## Start Phoenix and open UI in browser
+	$(COMPOSE_CMD) up -d phoenix
+	@sleep 3
 	@echo "Opening Phoenix at http://localhost:6006"
 	@open http://localhost:6006 2>/dev/null || xdg-open http://localhost:6006 2>/dev/null || echo "Visit: http://localhost:6006"
+
 
 ######### Research Queries #########
 .PHONY: query query-stream
@@ -109,8 +134,37 @@ cache-stats: ## Show Redis memory usage and key count
 ######### Dev helpers #########
 .PHONY: lint format
 
+test: ## Run unit tests
+	uv run pytest tests/unit/ -v --tb=short
+
+test-cov: ## Run unit tests with coverage report
+	uv run pytest tests/unit/ -v --tb=short --cov=src --cov-report=term-missing
+
 lint: ## Run ruff linter across all Python files
 	uv run ruff check .
 
 format: ## Run ruff formatter across all Python files
 	uv run ruff format .
+
+# ── A2A targets ────────────────────────────────────────────────────────────────
+.PHONY: agents-health a2a-demo
+
+agents-health:
+	@echo "--- A2A Agent Health ---"
+	@curl -s http://localhost:8010/health | python3 -m json.tool
+	@curl -s http://localhost:8011/health | python3 -m json.tool
+	@curl -s http://localhost:8012/health | python3 -m json.tool
+
+a2a-demo:
+	@echo "--- Calling Search Agent directly via A2A ---"
+	@curl -s -X POST http://localhost:8010/a2a \
+	  -H "Content-Type: application/json" \
+	  -d '{"sender":"demo","receiver":"search","task":"search","payload":{"query":"agent to agent protocol AI"}}' \
+	  | python3 -m json.tool
+
+a2a-factcheck:
+	@echo "--- Calling Fact-Check Agent directly via A2A ---"
+	@curl -s -X POST http://localhost:8012/a2a \
+	  -H "Content-Type: application/json" \
+	  -d '{"sender":"demo","receiver":"fact_check","task":"fact_check","payload":{"summary":"The sky is blue due to Rayleigh scattering.","query":"why is the sky blue"}}' \
+	  | python3 -m json.tool

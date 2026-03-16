@@ -24,8 +24,8 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from orchestrator.agent import ResearchAgent
 from orchestrator.api import ResearchRequest, ResearchResponse
+from orchestrator.supervisor import SupervisorAgent
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -42,11 +42,16 @@ log = structlog.get_logger()
 # ── Config from environment ───────────────────────────────────────────────────
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-SEARCH_MCP_URL = os.getenv("SEARCH_MCP_URL", "http://localhost:8001")
-SUMMARIZATION_MCP_URL = os.getenv("SUMMARIZATION_MCP_URL", "http://localhost:8002")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 MODEL = os.getenv("MODEL", "gpt-4o-mini")
 PHOENIX_ENDPOINT = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:4317")
+
+# A2A agent registry — Supervisor speaks only A2A, never directly to MCP
+A2A_REGISTRY = {
+    "search": os.getenv("SEARCH_AGENT_URL", "http://search-agent:8010"),
+    "summarize": os.getenv("SUMMARIZE_AGENT_URL", "http://summarize-agent:8011"),
+    "fact_check": os.getenv("FACT_CHECK_AGENT_URL", "http://fact-check-agent:8012"),
+}
 
 # ── OpenTelemetry → Phoenix ───────────────────────────────────────────────────
 
@@ -76,7 +81,12 @@ def get_db():
 
 
 def save_query(
-    conn, query: str, status: str, result: dict | None, error: str | None, duration_ms: int
+    conn,
+    query: str,
+    status: str,
+    result: dict | None,
+    error: str | None,
+    duration_ms: int,
 ):
     if not conn:
         return
@@ -107,26 +117,21 @@ def save_query(
 
 # ── Agent singleton ───────────────────────────────────────────────────────────
 
-_agent: ResearchAgent | None = None
+_agent: SupervisorAgent | None = None
 _start_time = time.time()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _agent
-    _agent = ResearchAgent(
+    _agent = SupervisorAgent(
         openai_api_key=OPENAI_API_KEY,
-        search_mcp_url=SEARCH_MCP_URL,
-        summarization_mcp_url=SUMMARIZATION_MCP_URL,
+        a2a_registry=A2A_REGISTRY,
         model=MODEL,
     )
-    log.info(
-        "orchestrator_ready", search_mcp=SEARCH_MCP_URL, summarization_mcp=SUMMARIZATION_MCP_URL
-    )
+    log.info("supervisor_ready", agents=list(A2A_REGISTRY.keys()))
     yield
-    if _agent:
-        await _agent.close()
-    log.info("orchestrator_shutdown")
+    log.info("supervisor_shutdown")
 
 
 app = FastAPI(title="research-agent-orchestrator", lifespan=lifespan)
@@ -137,11 +142,11 @@ app = FastAPI(title="research-agent-orchestrator", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    mcp_status = await _agent._gateway.health_check() if _agent else {}
+    agent_status = await _agent.health_check() if _agent else {}
     return {
         "status": "ok",
         "uptime_secs": round(time.time() - _start_time, 1),
-        "mcp_servers": mcp_status,
+        "a2a_agents": agent_status,
         "model": MODEL,
     }
 
@@ -171,6 +176,7 @@ async def research(req: ResearchRequest):
                 sources=result["sources"],
                 plan=result["plan"],
                 tool_calls=result["tool_calls"],
+                verification=result.get("verification", {}),
                 duration_ms=result["duration_ms"],
             )
 
@@ -208,7 +214,12 @@ async def research_stream(req: ResearchRequest):
                     yield f"data: {json.dumps({'type': 'result', **chunk})}\n\n"
 
             save_query(
-                conn, req.query, "complete", result, None, result["duration_ms"] if result else 0
+                conn,
+                req.query,
+                "complete",
+                result,
+                None,
+                result["duration_ms"] if result else 0,
             )
 
         except Exception as exc:

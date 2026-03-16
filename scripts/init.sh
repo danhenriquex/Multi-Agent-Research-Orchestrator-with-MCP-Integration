@@ -58,12 +58,12 @@ if [ ! -f .env ]; then
     info "Created .env from .env.example"
     echo ""
     echo -e "  ${YELLOW}ACTION REQUIRED:${NC} Edit .env and set your API keys:"
-    echo "    ANTHROPIC_API_KEY=sk-ant-..."
-    echo "    TAVILY_API_KEY=tvly-..."
+    echo "    OPENAI_API_KEY=sk-..."
+    echo "    POSTGRES_PASSWORD=<choose a password>"
     echo ""
     echo "  Get keys from:"
-    echo "    • Anthropic: https://console.anthropic.com"
-    echo "    • Tavily:    https://app.tavily.com"
+    echo "    • OpenAI: https://platform.openai.com/api-keys"
+    echo "  (Search uses DuckDuckGo — no extra key needed)"
 else
     info ".env already exists — skipping (delete it to reset)"
 fi

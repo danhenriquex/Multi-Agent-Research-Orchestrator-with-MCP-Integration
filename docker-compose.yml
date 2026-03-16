@@ -1,5 +1,7 @@
 services:
 
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
   redis:
     image: redis:7-alpine
     ports:
@@ -29,6 +31,19 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./configs/init.sql:/docker-entrypoint-initdb.d/init.sql
 
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8100:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   phoenix:
     image: arizephoenix/phoenix:latest
     ports:
@@ -39,6 +54,8 @@ services:
     volumes:
       - phoenix_data:/phoenix
 
+  # ── MCP Servers (vertical: agent -> tool) ───────────────────────────────────
+
   search-mcp:
     build:
       context: .
@@ -46,15 +63,15 @@ services:
     ports:
       - "8001:8001"
     environment:
-      TAVILY_API_KEY: ${TAVILY_API_KEY:-""}
       REDIS_URL: redis://redis:6379
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-""}
       MCP_SERVER_PORT: "8001"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8001), timeout=3); s.close()"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8001),timeout=3); s.close()"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -73,12 +90,106 @@ services:
       MAX_TOKENS_PER_REQUEST: "2000"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
-      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8002), timeout=3); s.close()"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8002),timeout=3); s.close()"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
     restart: unless-stopped
+
+  knowledge-mcp:
+    build:
+      context: .
+      dockerfile: src/mcp_servers/knowledge/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-""}
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      CHROMA_COLLECTION: research_knowledge
+      MCP_SERVER_PORT: "8003"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8003),timeout=3); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── A2A Agents (horizontal: agent <-> agent) ─────────────────────────────────
+
+  search-agent:
+    build:
+      context: .
+      dockerfile: src/agents/search/Dockerfile
+    ports:
+      - "8010:8010"
+    environment:
+      SEARCH_MCP_URL: http://search-mcp:8001
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      AGENT_PORT: "8010"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      search-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8010),timeout=3); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  summarize-agent:
+    build:
+      context: .
+      dockerfile: src/agents/summarize/Dockerfile
+    ports:
+      - "8011:8011"
+    environment:
+      SUMMARIZATION_MCP_URL: http://summarization-mcp:8002
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      AGENT_PORT: "8011"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      summarization-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8011),timeout=3); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  fact-check-agent:
+    build:
+      context: .
+      dockerfile: src/agents/fact_check/Dockerfile
+    ports:
+      - "8012:8012"
+    environment:
+      KNOWLEDGE_MCP_URL: http://knowledge-mcp:8003
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      AGENT_PORT: "8012"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      knowledge-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8012),timeout=3); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Supervisor (orchestrates all agents via A2A) ─────────────────────────────
 
   orchestrator:
     build:
@@ -88,30 +199,31 @@ services:
       - "8000:8000"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-""}
-      SEARCH_MCP_URL: http://search-mcp:8001
-      SUMMARIZATION_MCP_URL: http://summarization-mcp:8002
-      REDIS_URL: redis://redis:6379
+      SEARCH_AGENT_URL:     http://search-agent:8010
+      SUMMARIZE_AGENT_URL:  http://summarize-agent:8011
+      FACT_CHECK_AGENT_URL: http://fact-check-agent:8012
       DATABASE_URL: postgresql://agent:${POSTGRES_PASSWORD:-agentpass}@postgres:5432/research_agent
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      search-agent:
         condition: service_healthy
-      search-mcp:
+      summarize-agent:
         condition: service_healthy
-      summarization-mcp:
+      fact-check-agent:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8000),timeout=3); s.close()"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 25s
     restart: unless-stopped
 
 volumes:
   redis_data:
   postgres_data:
+  chroma_data:
   phoenix_data:
