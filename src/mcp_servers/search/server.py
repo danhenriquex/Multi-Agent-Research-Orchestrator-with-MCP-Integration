@@ -67,7 +67,12 @@ async def web_search(query: str, max_results: int = 5) -> dict:
             backend = "scrape_fallback"
         except Exception as exc:
             log.error("scraper_failed", error=str(exc))
-            return {"results": [], "backend": "none", "cached": False, "error": str(exc)}
+            return {
+                "results": [],
+                "backend": "none",
+                "cached": False,
+                "error": str(exc),
+            }
 
     return {"results": results, "backend": backend, "cached": False}
 

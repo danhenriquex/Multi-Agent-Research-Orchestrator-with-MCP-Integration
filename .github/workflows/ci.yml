@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feat/**', 'fix/**']
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   lint:
@@ -30,9 +30,38 @@ jobs:
       - name: Run ruff formatter check
         run: uv tool run ruff format --check .
 
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ -v --tb=short
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: .coverage
+          if-no-files-found: ignore
+
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
+    needs: test
     strategy:
       matrix:
         service:
@@ -40,6 +69,14 @@ jobs:
             dockerfile: src/mcp_servers/search/Dockerfile
           - name: summarization-mcp
             dockerfile: src/mcp_servers/summarization/Dockerfile
+          - name: knowledge-mcp
+            dockerfile: src/mcp_servers/knowledge/Dockerfile
+          - name: search-agent
+            dockerfile: src/agents/search/Dockerfile
+          - name: summarize-agent
+            dockerfile: src/agents/summarize/Dockerfile
+          - name: fact-check-agent
+            dockerfile: src/agents/fact_check/Dockerfile
           - name: orchestrator
             dockerfile: src/orchestrator/Dockerfile
     steps:
@@ -77,12 +114,12 @@ jobs:
           LOG_LEVEL=INFO
           ENVEOF
 
-      - name: Start services
+      - name: Start infrastructure + MCP servers
         run: |
           docker compose -p research-agent -f docker-compose.yml --env-file .env up -d \
-            redis postgres search-mcp summarization-mcp
+            redis postgres chromadb search-mcp summarization-mcp knowledge-mcp
           echo "Waiting for services to be healthy..."
-          sleep 30
+          sleep 40
 
       - name: Check search-mcp is up
         run: |
@@ -94,7 +131,12 @@ jobs:
           docker compose -p research-agent exec -T summarization-mcp \
             python3 -c "import socket; s=socket.create_connection(('localhost',8002),3); s.close(); print('summarization-mcp OK')"
 
-      - name: Test MCP tool call (search)
+      - name: Check knowledge-mcp is up
+        run: |
+          docker compose -p research-agent exec -T knowledge-mcp \
+            python3 -c "import socket; s=socket.create_connection(('localhost',8003),3); s.close(); print('knowledge-mcp OK')"
+
+      - name: Test search-mcp tools
         run: |
           docker compose -p research-agent run --rm orchestrator python3 -c "
           import asyncio
@@ -111,7 +153,7 @@ jobs:
           asyncio.run(test())
           "
 
-      - name: Test MCP tool call (summarization)
+      - name: Test summarization-mcp tools
         run: |
           docker compose -p research-agent run --rm orchestrator python3 -c "
           import asyncio
@@ -123,6 +165,23 @@ jobs:
                   names = [t.name for t in tools]
                   assert 'summarize_text' in names, f'summarize_text missing, got: {names}'
                   print('✓ summarization-mcp tools:', names)
+
+          asyncio.run(test())
+          "
+
+      - name: Test knowledge-mcp tools
+        run: |
+          docker compose -p research-agent run --rm orchestrator python3 -c "
+          import asyncio
+          from fastmcp import Client
+
+          async def test():
+              async with Client('http://knowledge-mcp:8003/mcp') as client:
+                  tools = await client.list_tools()
+                  names = [t.name for t in tools]
+                  assert 'verify_claims' in names, f'verify_claims missing, got: {names}'
+                  assert 'index_documents' in names, f'index_documents missing, got: {names}'
+                  print('✓ knowledge-mcp tools:', names)
 
           asyncio.run(test())
           "

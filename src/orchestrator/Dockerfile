@@ -14,6 +14,7 @@ RUN uv pip install --system --no-cache \
     opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
 
 COPY src/orchestrator/  ./src/orchestrator/
+COPY src/a2a/           ./src/a2a/
 COPY src/shared/        ./src/shared/
 COPY src/config/        ./src/config/
 

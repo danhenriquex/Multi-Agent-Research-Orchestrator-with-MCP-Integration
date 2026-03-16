@@ -12,22 +12,23 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
-def configure_tracing(service_name: str) -> trace.Tracer:
+def configure_tracing(service_name: str, endpoint: str | None = None) -> trace.Tracer:
     """
     Wire up OpenTelemetry → Phoenix (via OTLP gRPC).
 
     Args:
-        service_name: Identifier shown in Phoenix UI (e.g. 'search-mcp').
+        service_name: Identifier shown in Phoenix UI (e.g. 'search-agent').
+        endpoint:     OTLP collector endpoint (overrides PHOENIX_COLLECTOR_ENDPOINT env var).
 
     Returns:
         A tracer you can use for custom spans in the calling service.
     """
-    endpoint = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:4317")
+    resolved = endpoint or os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:4317")
 
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
 
-    exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+    exporter = OTLPSpanExporter(endpoint=resolved, insecure=True)
     provider.add_span_processor(BatchSpanProcessor(exporter))
 
     trace.set_tracer_provider(provider)
