@@ -140,6 +140,12 @@ test: ## Run unit tests
 test-cov: ## Run unit tests with coverage report
 	uv run pytest tests/unit/ -v --tb=short --cov=src --cov-report=term-missing
 
+test-integration: ## Run integration tests (requires: make up)
+	uv run pytest tests/integration/ -v --tb=short
+
+test-integration: ## Run integration tests (requires: make up)
+	uv run pytest tests/integration/ -v --tb=short -s
+
 lint: ## Run ruff linter across all Python files
 	uv run ruff check .
 

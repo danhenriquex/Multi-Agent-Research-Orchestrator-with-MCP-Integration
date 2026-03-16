@@ -61,7 +61,7 @@ jobs:
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
-    needs: test
+    needs: lint
     strategy:
       matrix:
         service:
@@ -98,7 +98,7 @@ jobs:
   smoke-test:
     name: Smoke Test
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, test]
     steps:
       - uses: actions/checkout@v4
 
@@ -189,3 +189,52 @@ jobs:
       - name: Dump logs on failure
         if: failure()
         run: docker compose -p research-agent logs
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'ENVEOF'
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
+          POSTGRES_PASSWORD=testpass
+          LOG_LEVEL=INFO
+          ENVEOF
+
+      - name: Start full stack
+        run: |
+          docker compose -p research-agent -f docker-compose.yml --env-file .env up -d --wait --wait-timeout 120
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v --tb=short
+        env:
+          ORCHESTRATOR_URL: http://localhost:8000
+          SEARCH_AGENT_URL: http://localhost:8010
+          SUMMARIZE_AGENT_URL: http://localhost:8011
+          FACT_CHECK_AGENT_URL: http://localhost:8012
+          SEARCH_MCP_URL: http://localhost:8001
+          KNOWLEDGE_MCP_URL: http://localhost:8003
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -p research-agent logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose -p research-agent down -v
