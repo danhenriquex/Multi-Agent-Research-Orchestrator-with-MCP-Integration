@@ -22,6 +22,17 @@ import re
 import structlog
 from openai import AsyncOpenAI
 
+try:
+    from langsmith import traceable
+except ImportError:  # graceful fallback if langsmith not installed
+
+    def traceable(**_kw):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+
 log = structlog.get_logger()
 
 PLAN_SYSTEM_PROMPT = """You are a research planning assistant. Given a research query,
@@ -54,6 +65,7 @@ class ReWOOPlanner:
         self._client = AsyncOpenAI(api_key=openai_api_key)
         self._model = model
 
+    @traceable(name="rewoo_planner.plan", run_type="llm")
     async def plan(self, query: str) -> list[dict]:
         """
         Generate a research plan for a query.
@@ -89,6 +101,16 @@ class ReWOOPlanner:
             log.error("planning_failed", error=str(exc), query=query)
             # Fallback: simple 2-step plan
             return [
-                {"step": 1, "tool": "search", "input": query, "reason": "Direct search fallback"},
-                {"step": 2, "tool": "summarize", "input": "#search", "reason": "Summarize results"},
+                {
+                    "step": 1,
+                    "tool": "search",
+                    "input": query,
+                    "reason": "Direct search fallback",
+                },
+                {
+                    "step": 2,
+                    "tool": "summarize",
+                    "input": "#search",
+                    "reason": "Summarize results",
+                },
             ]

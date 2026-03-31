@@ -88,6 +88,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-""}
       MCP_SERVER_PORT: "8002"
       MAX_TOKENS_PER_REQUEST: "2000"
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LANGCHAIN_API_KEY: ${LANGSMITH_API_KEY:-""}
+      LANGCHAIN_PROJECT: ${LANGSMITH_PROJECT:-research-agent}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8002),timeout=3); s.close()"]
@@ -204,6 +207,9 @@ services:
       FACT_CHECK_AGENT_URL: http://fact-check-agent:8012
       DATABASE_URL: postgresql://agent:${POSTGRES_PASSWORD:-agentpass}@postgres:5432/research_agent
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LANGCHAIN_API_KEY: ${LANGSMITH_API_KEY:-""}
+      LANGCHAIN_PROJECT: ${LANGSMITH_PROJECT:-research-agent}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
