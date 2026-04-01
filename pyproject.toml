@@ -30,6 +30,7 @@ dependencies = [
   "structlog>=24.2.0",
   "tenacity>=8.3.0",
   "langsmith>=0.1.0",
+  "openinference-instrumentation-openai>=0.1.0",
   "openinference-instrumentation>=0.1.0",
   "tiktoken>=0.7.0",
 ]
