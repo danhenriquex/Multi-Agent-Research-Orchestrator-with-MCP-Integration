@@ -112,6 +112,9 @@ jobs:
           TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
           POSTGRES_PASSWORD=testpass
           LOG_LEVEL=INFO
+          LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}
+          LANGCHAIN_TRACING_V2=true
+          LANGSMITH_PROJECT=research-agent-ci
           ENVEOF
 
       - name: Start infrastructure + MCP servers
@@ -215,6 +218,9 @@ jobs:
           TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
           POSTGRES_PASSWORD=testpass
           LOG_LEVEL=INFO
+          LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}
+          LANGCHAIN_TRACING_V2=true
+          LANGSMITH_PROJECT=research-agent-ci
           ENVEOF
 
       - name: Start full stack
