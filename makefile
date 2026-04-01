@@ -25,7 +25,7 @@ init: ## Bootstrap the project (install uv, deps, pre-commit, create .env)
 	./scripts/init.sh
 
 ######### Docker Compose #########
-.PHONY: up down down-volumes restart build update logs docker-prune
+.PHONY: up down down-volumes restart build update logs docker-prune rebuild rebuild-clean
 
 up: ## Start all services in detached mode (2 min timeout)
 	$(COMPOSE_CMD) up -d --wait --wait-timeout 120
@@ -93,7 +93,6 @@ phoenix: ## Start Phoenix and open UI in browser
 	@echo "Opening Phoenix at http://localhost:6006"
 	@open http://localhost:6006 2>/dev/null || xdg-open http://localhost:6006 2>/dev/null || echo "Visit: http://localhost:6006"
 
-
 ######### Research Queries #########
 .PHONY: query query-stream
 
@@ -122,7 +121,7 @@ db-history: ## Show last 10 research queries stored in Postgres
 ######### Cache #########
 .PHONY: cache-flush cache-stats
 
-cache-flush: ## Flush all Redis cache entries (search cache only)
+cache-flush: ## Flush all Redis search cache entries
 	$(COMPOSE_CMD) exec redis redis-cli --scan --pattern "search:*" | xargs -r \
 		$(COMPOSE_CMD) exec -T redis redis-cli DEL
 	@echo "Search cache flushed"
@@ -131,8 +130,8 @@ cache-stats: ## Show Redis memory usage and key count
 	@$(COMPOSE_CMD) exec redis redis-cli info memory | grep used_memory_human
 	@echo "Search keys: $$($(COMPOSE_CMD) exec redis redis-cli --scan --pattern 'search:*' | wc -l)"
 
-######### Dev helpers #########
-.PHONY: lint format
+######### Tests #########
+.PHONY: test test-cov test-integration
 
 test: ## Run unit tests
 	uv run pytest tests/unit/ -v --tb=short
@@ -143,8 +142,20 @@ test-cov: ## Run unit tests with coverage report
 test-integration: ## Run integration tests (requires: make up)
 	uv run pytest tests/integration/ -v --tb=short
 
-test-integration: ## Run integration tests (requires: make up)
-	uv run pytest tests/integration/ -v --tb=short -s
+######### Evals #########
+.PHONY: evals evals-dry evals-summary
+
+evals: ## Run Phoenix LLM-as-a-judge evaluators (requires: make up + some queries)
+	uv run python evals/phoenix_evals.py
+
+evals-dry: ## Run evals in dry-run mode (no LLM calls — just counts spans)
+	uv run python evals/phoenix_evals.py --dry-run
+
+evals-summary: ## Run only summary clarity evaluator
+	uv run python evals/phoenix_evals.py --only summary
+
+######### Dev helpers #########
+.PHONY: lint format
 
 lint: ## Run ruff linter across all Python files
 	uv run ruff check .
@@ -152,23 +163,23 @@ lint: ## Run ruff linter across all Python files
 format: ## Run ruff formatter across all Python files
 	uv run ruff format .
 
-# ── A2A targets ────────────────────────────────────────────────────────────────
-.PHONY: agents-health a2a-demo
+######### A2A targets #########
+.PHONY: agents-health a2a-demo a2a-factcheck
 
-agents-health:
+agents-health: ## Health check all 3 A2A agents
 	@echo "--- A2A Agent Health ---"
 	@curl -s http://localhost:8010/health | python3 -m json.tool
 	@curl -s http://localhost:8011/health | python3 -m json.tool
 	@curl -s http://localhost:8012/health | python3 -m json.tool
 
-a2a-demo:
+a2a-demo: ## Call search agent directly via A2A
 	@echo "--- Calling Search Agent directly via A2A ---"
 	@curl -s -X POST http://localhost:8010/a2a \
 	  -H "Content-Type: application/json" \
 	  -d '{"sender":"demo","receiver":"search","task":"search","payload":{"query":"agent to agent protocol AI"}}' \
 	  | python3 -m json.tool
 
-a2a-factcheck:
+a2a-factcheck: ## Call fact-check agent directly via A2A
 	@echo "--- Calling Fact-Check Agent directly via A2A ---"
 	@curl -s -X POST http://localhost:8012/a2a \
 	  -H "Content-Type: application/json" \

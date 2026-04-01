@@ -8,7 +8,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY pyproject.toml .
 RUN uv pip install --system --no-cache \
-    fastmcp openai fastapi "uvicorn[standard]" pydantic pydantic-settings structlog tenacity tiktoken
+    fastmcp openai fastapi "uvicorn[standard]" pydantic pydantic-settings structlog tenacity tiktoken \
+    langsmith
 
 COPY src/mcp_servers/summarization/  ./src/mcp_servers/summarization/
 COPY src/shared/                      ./src/shared/

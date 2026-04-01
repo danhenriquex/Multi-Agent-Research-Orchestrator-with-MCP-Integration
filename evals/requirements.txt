@@ -1,0 +1,5 @@
+# Eval dependencies — install with: pip install -r evals/requirements.txt
+arize-phoenix[evals]>=4.5.5
+openinference-instrumentation>=0.1.0
+openai>=1.30.0
+pandas>=2.0.0

@@ -21,6 +21,18 @@ import re
 
 import structlog
 from openai import AsyncOpenAI
+from opentelemetry import trace as otel_trace
+
+try:
+    from langsmith import traceable
+except ImportError:  # graceful fallback if langsmith not installed
+
+    def traceable(**_kw):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
 
 log = structlog.get_logger()
 
@@ -54,6 +66,7 @@ class ReWOOPlanner:
         self._client = AsyncOpenAI(api_key=openai_api_key)
         self._model = model
 
+    @traceable(name="rewoo_planner.plan", run_type="llm")
     async def plan(self, query: str) -> list[dict]:
         """
         Generate a research plan for a query.
@@ -66,29 +79,48 @@ class ReWOOPlanner:
         """
         log.info("planning", query=query)
 
-        try:
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                max_tokens=500,
-                temperature=0.1,  # low temp = more deterministic plans
-                messages=[
-                    {"role": "system", "content": PLAN_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Research query: {query}"},
-                ],
-            )
-            raw = response.choices[0].message.content.strip()
+        tracer = otel_trace.get_tracer("orchestrator.planner")
+        with tracer.start_as_current_span("rewoo_planner.plan") as span:
+            span.set_attribute("input.query", query)
+            span.set_attribute("input.model", self._model)
 
-            # Strip markdown fences if present
-            raw = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self._model,
+                    max_tokens=500,
+                    temperature=0.1,  # low temp = more deterministic plans
+                    messages=[
+                        {"role": "system", "content": PLAN_SYSTEM_PROMPT},
+                        {"role": "user", "content": f"Research query: {query}"},
+                    ],
+                )
+                raw = response.choices[0].message.content.strip()
 
-            plan = json.loads(raw)
-            log.info("plan_created", steps=len(plan), query=query)
-            return plan
+                # Strip markdown fences if present
+                raw = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
 
-        except Exception as exc:
-            log.error("planning_failed", error=str(exc), query=query)
-            # Fallback: simple 2-step plan
-            return [
-                {"step": 1, "tool": "search", "input": query, "reason": "Direct search fallback"},
-                {"step": 2, "tool": "summarize", "input": "#search", "reason": "Summarize results"},
-            ]
+                plan = json.loads(raw)
+
+                span.set_attribute("output.num_steps", len(plan))
+                span.set_attribute("output.plan", json.dumps(plan))
+                log.info("plan_created", steps=len(plan), query=query)
+                return plan
+
+            except Exception as exc:
+                span.set_attribute("error", str(exc))
+                log.error("planning_failed", error=str(exc), query=query)
+                # Fallback: simple 2-step plan
+                return [
+                    {
+                        "step": 1,
+                        "tool": "search",
+                        "input": query,
+                        "reason": "Direct search fallback",
+                    },
+                    {
+                        "step": 2,
+                        "tool": "summarize",
+                        "input": "#search",
+                        "reason": "Summarize results",
+                    },
+                ]

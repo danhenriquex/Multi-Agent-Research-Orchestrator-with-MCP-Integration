@@ -15,6 +15,18 @@ import structlog
 from fastmcp import FastMCP
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+try:
+    from langsmith import traceable
+except ImportError:
+
+    def traceable(**_kw):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+
 from token_budget import count_tokens, truncate_to_budget
 
 from config import settings
@@ -53,6 +65,7 @@ mcp = FastMCP(
 )
 
 
+@traceable(name="summarization_mcp.openai_call", run_type="llm")
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
 async def _call_openai(system: str, user: str) -> str:
     client = get_client()
@@ -72,7 +85,11 @@ async def _call_openai(system: str, user: str) -> str:
 @mcp.tool
 async def summarize_text(text: str, focus: str = "", max_length: str = "medium") -> dict:
     """Summarize a block of text. max_length: short | medium | long."""
-    length_map = {"short": "2-3 sentences", "medium": "one paragraph", "long": "3-4 paragraphs"}
+    length_map = {
+        "short": "2-3 sentences",
+        "medium": "one paragraph",
+        "long": "3-4 paragraphs",
+    }
     length = length_map.get(max_length, "one paragraph")
     text_trimmed, truncated = truncate_to_budget(text, settings.max_input_tokens)
     tokens = count_tokens(text_trimmed)
@@ -81,7 +98,11 @@ async def summarize_text(text: str, focus: str = "", max_length: str = "medium")
     try:
         summary = await _call_openai(system, text_trimmed)
     except Exception as exc:
-        return {"summary": f"[ERROR] {exc}", "input_tokens": tokens, "truncated": truncated}
+        return {
+            "summary": f"[ERROR] {exc}",
+            "input_tokens": tokens,
+            "truncated": truncated,
+        }
     return {"summary": summary, "input_tokens": tokens, "truncated": truncated}
 
 
@@ -91,7 +112,11 @@ async def summarize_search_results(
 ) -> dict:
     """Synthesize multiple search results into a coherent summary."""
     if not results:
-        return {"summary": "No search results to summarize.", "sources": [], "input_tokens": 0}
+        return {
+            "summary": "No search results to summarize.",
+            "sources": [],
+            "input_tokens": 0,
+        }
 
     formatted = f"Query: {query}\n\n"
     sources = []
@@ -104,7 +129,11 @@ async def summarize_search_results(
 
     text_trimmed, truncated = truncate_to_budget(formatted, settings.max_input_tokens)
     tokens = count_tokens(text_trimmed)
-    length_map = {"short": "2-3 sentences", "medium": "one paragraph", "long": "3-4 paragraphs"}
+    length_map = {
+        "short": "2-3 sentences",
+        "medium": "one paragraph",
+        "long": "3-4 paragraphs",
+    }
     length = length_map.get(max_length, "one paragraph")
     system = f"Synthesize search results into {length}. Cite sources by number. Be factual."
 

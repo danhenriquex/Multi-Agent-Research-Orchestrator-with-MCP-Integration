@@ -1,6 +1,10 @@
 """
 OpenTelemetry + Phoenix tracing setup.
 Call configure_tracing() once at app startup in each service.
+
+Includes OpenAI auto-instrumentation so Phoenix and LangSmith
+receive token counts, model names, and prompt/completion pairs
+automatically for every OpenAI API call.
 """
 
 import os
@@ -15,6 +19,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 def configure_tracing(service_name: str, endpoint: str | None = None) -> trace.Tracer:
     """
     Wire up OpenTelemetry → Phoenix (via OTLP gRPC).
+    Also auto-instruments OpenAI client so token counts and
+    prompt/completion pairs appear in Phoenix and LangSmith.
 
     Args:
         service_name: Identifier shown in Phoenix UI (e.g. 'search-agent').
@@ -32,6 +38,17 @@ def configure_tracing(service_name: str, endpoint: str | None = None) -> trace.T
     provider.add_span_processor(BatchSpanProcessor(exporter))
 
     trace.set_tracer_provider(provider)
+
+    # ── OpenAI auto-instrumentation ───────────────────────────────────────────
+    # This makes Phoenix show token counts, model names, and prompt/response
+    # pairs as native LLM spans instead of "unknown" kind spans.
+    try:
+        from openinference.instrumentation.openai import OpenAIInstrumentor
+
+        OpenAIInstrumentor().instrument(tracer_provider=provider)
+    except ImportError:
+        pass  # openinference-instrumentation-openai not installed — skip silently
+
     return trace.get_tracer(service_name)
 
 

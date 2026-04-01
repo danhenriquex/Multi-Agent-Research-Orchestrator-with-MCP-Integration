@@ -11,7 +11,9 @@ RUN uv pip install --system --no-cache \
     openai fastmcp fastapi "uvicorn[standard]" httpx \
     pydantic pydantic-settings structlog tenacity \
     psycopg2-binary \
-    opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
+    opentelemetry-sdk opentelemetry-exporter-otlp \
+    openinference-instrumentation-openai \
+    langsmith
 
 COPY src/orchestrator/  ./src/orchestrator/
 COPY src/a2a/           ./src/a2a/
