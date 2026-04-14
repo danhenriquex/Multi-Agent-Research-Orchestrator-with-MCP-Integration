@@ -20,9 +20,12 @@ help: ## Show all available targets
 	@echo "  make logs SERVICE=search-mcp"
 
 ######### Setup #########
-.PHONY: init
+.PHONY: init deploy-gcp
 init: ## Bootstrap the project (install uv, deps, pre-commit, create .env)
 	./scripts/init.sh
+
+deploy-gcp: ## Full GCP deployment (requires: export GCP_PROJECT_ID=your-project-id)
+	./scripts/setup-gcp.sh
 
 ######### Docker Compose #########
 .PHONY: up down down-volumes restart build update logs docker-prune rebuild rebuild-clean

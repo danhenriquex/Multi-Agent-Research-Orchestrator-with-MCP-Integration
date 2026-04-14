@@ -42,4 +42,5 @@ logs/
 # ── Test artifacts ────────────────────────────────────────────────────────────
 .coverage
 htmlcov/
-coverage.xml
+coverage.xmlterraform/.terraform/
+terraform/.terraform.lock.hcl

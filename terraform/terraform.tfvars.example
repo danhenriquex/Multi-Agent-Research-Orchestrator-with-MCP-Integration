@@ -1,0 +1,18 @@
+# ── Copy this file to terraform.tfvars and fill in your values ────────────────
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is gitignored — never commit real values.
+
+project_id    = "your-gcp-project-id"
+region        = "us-central1"
+environment   = "prod"
+image_tag     = "latest"
+
+# Scaling (0 = scale to zero when idle — saves cost)
+min_instances = 0
+max_instances = 3
+
+# Database
+db_tier = "db-f1-micro"   # cheapest — upgrade to db-g1-small for prod
+db_name = "research_agent"
+db_user = "agent"
