@@ -44,7 +44,7 @@ The Supervisor never calls MCP servers directly. It delegates to specialist agen
 each of which privately manages its own MCP connections. This means agents can be scaled,
 replaced, or upgraded without touching the orchestrator.
 
-```text
+```
 MCP  = vertical  (agent → tool)    one-directional, tool executes
 A2A  = horizontal (agent ↔ agent)  bidirectional, agent reasons
 ```
@@ -60,7 +60,6 @@ ReWOO (Reason → Plan → Execute) separates the planning phase from execution:
 ### Fact-Check Agent & Self-Healing Loop
 
 After every research cycle the Supervisor calls the Fact-Check Agent, which:
-
 1. Searches ChromaDB for semantically similar content
 2. Returns a confidence score (0.0–1.0) based on cosine similarity
 3. If confidence < 0.50, the Supervisor automatically triggers a second search pass
@@ -77,7 +76,7 @@ This creates a self-healing loop without any hardcoded retry logic.
 ### Trade-offs (Intentional Simplifications)
 
 | Simplified | Why | Production Path |
-| --- | --- | --- |
+|---|---|---|
 | Direct HTTP for A2A | Simpler than message queue | RabbitMQ for async, fault tolerance |
 | Static agent registry | No infrastructure needed | Consul / etcd for dynamic discovery |
 | Full context in A2A messages | Stateless agents, easier to debug | Redis context store + context IDs |
@@ -126,16 +125,16 @@ make evals
 ## Services
 
 | Service | URL | Purpose |
-| --- | --- | --- |
-| Orchestrator | <http://localhost:8000> | Supervisor agent + API |
-| Search Agent | <http://localhost:8010> | A2A agent → Search MCP |
-| Summarize Agent | <http://localhost:8011> | A2A agent → Summarization MCP |
-| Fact-Check Agent | <http://localhost:8012> | A2A agent → Knowledge MCP |
-| Search MCP | <http://localhost:8001> | Tavily web search tool server |
-| Summarization MCP | <http://localhost:8002> | OpenAI synthesis tool server |
-| Knowledge MCP | <http://localhost:8003> | ChromaDB vector search |
-| Phoenix UI | <http://localhost:6006> | Distributed tracing + eval scores |
-| ChromaDB | <http://localhost:8100> | Vector knowledge base |
+|---|---|---|
+| Orchestrator | http://localhost:8000 | Supervisor agent + API |
+| Search Agent | http://localhost:8010 | A2A agent → Search MCP |
+| Summarize Agent | http://localhost:8011 | A2A agent → Summarization MCP |
+| Fact-Check Agent | http://localhost:8012 | A2A agent → Knowledge MCP |
+| Search MCP | http://localhost:8001 | Tavily web search tool server |
+| Summarization MCP | http://localhost:8002 | OpenAI synthesis tool server |
+| Knowledge MCP | http://localhost:8003 | ChromaDB vector search |
+| Phoenix UI | http://localhost:6006 | Distributed tracing + eval scores |
+| ChromaDB | http://localhost:8100 | Vector knowledge base |
 | Redis | localhost:6379 | Search result cache |
 | PostgreSQL | localhost:5432 | Query history |
 
@@ -188,6 +187,10 @@ make test                          # run unit tests
 make test-cov                      # run unit tests with coverage report
 make test-integration              # run integration tests (requires: make up)
 
+# ── GCP Deployment ────────────────────────────────────────────────────────────
+make deploy-gcp                    # full GCP deployment (reads keys from .env)
+make post-deploy                   # run once after terraform apply — IAM, DB schema
+
 # ── Dev ───────────────────────────────────────────────────────────────────────
 make lint                          # run ruff linter
 make format                        # run ruff formatter
@@ -220,6 +223,18 @@ Project-level aggregate eval scores appear in the header:
 
 Traces for every OpenAI call — planner and summarization — with full prompt/response pairs,
 token counts, and latency. Set `LANGSMITH_API_KEY` and `LANGCHAIN_TRACING_V2=true` in `.env`.
+
+### GCP Cloud Logging
+
+When deployed to GCP, all structured logs from every service are automatically available at:
+```
+https://console.cloud.google.com/logs?project=YOUR_PROJECT_ID
+```
+
+Filter by service:
+```
+resource.type=cloud_run_revision AND resource.labels.service_name=orchestrator
+```
 
 ---
 
@@ -269,12 +284,101 @@ ChromaDB index → verify flow, full pipeline response, streaming endpoint, empt
 
 The GitHub Actions pipeline runs on every push to `main`, `develop`, `feat/**`, and `fix/**`:
 
-```text
+```
 lint → test (parallel with build) → build → smoke-test → integration-test
 ```
 
 Required GitHub secrets: `OPENAI_API_KEY`, `TAVILY_API_KEY`.
 Optional: `LANGSMITH_API_KEY` (enables LangSmith tracing in CI).
+
+---
+
+## GCP Deployment
+
+The full stack deploys to Google Cloud Platform using Terraform. Each Docker service maps to
+a Cloud Run service, with Cloud SQL replacing local Postgres and Memorystore replacing Redis.
+
+```
+Local                     GCP
+─────────────────────     ──────────────────────────────────
+7 Docker containers   →   7 Cloud Run services (scale to zero)
+postgres container    →   Cloud SQL (managed Postgres 16)
+redis container       →   Memorystore (managed Redis 7)
+local images          →   Artifact Registry
+.env file             →   Secret Manager
+localhost:8000        →   https://orchestrator-xxx-uc.a.run.app
+```
+
+### Prerequisites
+
+```bash
+# Install Terraform
+sudo apt install terraform
+
+# Install and authenticate gcloud
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+
+# Link billing
+gcloud billing projects link YOUR_PROJECT_ID \
+  --billing-account=YOUR_BILLING_ACCOUNT_ID
+```
+
+### Deploy
+
+```bash
+# 1. Configure Terraform
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+# fill in project_id
+
+# 2. Populate secrets first (before terraform apply)
+source .env
+echo -n "$OPENAI_API_KEY"    | gcloud secrets versions add openai-api-key --data-file=-
+echo -n "$TAVILY_API_KEY"    | gcloud secrets versions add tavily-api-key --data-file=-
+echo -n "$LANGSMITH_API_KEY" | gcloud secrets versions add langsmith-api-key --data-file=-
+echo -n "$(openssl rand -base64 32)" | gcloud secrets versions add postgres-password --data-file=-
+
+# 3. Build and push Docker images
+export GCP_PROJECT_ID=YOUR_PROJECT_ID
+make deploy-gcp
+
+# 4. Post-deploy configuration (IAM, DB schema, Cloud SQL auth)
+make post-deploy
+
+# 5. Test
+curl $(cd terraform && terraform output -raw orchestrator_url)/health
+```
+
+### Test the live deployment
+
+```bash
+curl -X POST $(cd terraform && terraform output -raw orchestrator_url)/research \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is the A2A protocol?"}'
+```
+
+### Cost estimate (us-central1, idle)
+
+| Resource | Monthly cost |
+|---|---|
+| Cloud Run (7 services, scale-to-zero) | ~$0 idle, ~$5–15 under load |
+| Cloud SQL db-f1-micro | ~$10 |
+| Memorystore 1GB Basic | ~$35 |
+| Artifact Registry | ~$1 |
+| **Total** | **~$46–56/month** |
+
+### Tear down
+
+```bash
+# Disable deletion protection first
+gcloud sql instances patch research-agent-db-prod \
+  --no-deletion-protection --project=YOUR_PROJECT_ID
+
+cd terraform && terraform destroy
+```
+
+Redeploy later with just `terraform apply` — images stay in Artifact Registry so no rebuild needed.
 
 ---
 
@@ -286,4 +390,4 @@ Optional: `LANGSMITH_API_KEY` (enables LangSmith tracing in CI).
 - [x] **Phase 4** — A2A architecture (Supervisor + 3 specialist agents + Knowledge MCP)
 - [x] **Phase 5** — CI/CD, unit + integration tests, rich Phoenix span attributes
 - [x] **Phase 6** — LangSmith tracing, LLM-as-a-judge evals, OpenAI auto-instrumentation
-- [ ] **Phase 7** — GCP deployment (Cloud Run + Terraform)
+- [x] **Phase 7** — GCP deployment (Cloud Run + Terraform + scripts)
