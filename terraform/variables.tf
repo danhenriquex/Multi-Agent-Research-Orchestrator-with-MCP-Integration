@@ -39,6 +39,32 @@ locals {
   }
 }
 
+# ── Cache & Embeddings ────────────────────────────────────────────────────────
+
+variable "embedding_model" {
+  description = "OpenAI embedding model for semantic cache and ChromaDB"
+  type        = string
+  default     = "text-embedding-3-small"
+}
+
+variable "cache_similarity_threshold" {
+  description = "Semantic cache similarity threshold (0.90-0.97)"
+  type        = string
+  default     = "0.94"
+}
+
+variable "chroma_drift_threshold" {
+  description = "ChromaDB drift detection threshold"
+  type        = string
+  default     = "0.30"
+}
+
+variable "chroma_verify_threshold" {
+  description = "ChromaDB minimum similarity to verify a claim"
+  type        = string
+  default     = "0.75"
+}
+
 # ── Scaling ───────────────────────────────────────────────────────────────────
 
 variable "min_instances" {

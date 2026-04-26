@@ -33,6 +33,7 @@ dependencies = [
   "openinference-instrumentation-openai>=0.1.0",
   "openinference-instrumentation>=0.1.0",
   "tiktoken>=0.7.0",
+  "rouge-score>=0.1.2",
 ]
 
 [dependency-groups]

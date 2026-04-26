@@ -69,8 +69,9 @@ docker-prune: ## Remove unused Docker containers, images and volumes
 
 health: ## Check health of all running services
 	@echo "\n=== Service Health ==="
-	@curl -sf http://localhost:8001/mcp > /dev/null && echo "✓ search-mcp (port 8001)" || echo "✗ search-mcp (not running?)"
-	@curl -sf http://localhost:8002/mcp > /dev/null && echo "✓ summarization-mcp (port 8002)" || echo "✗ summarization-mcp (not running?)"
+	@docker inspect research-agent-search-mcp-1 --format="{{.State.Health.Status}}" 2>/dev/null | grep -q healthy && echo "✓ search-mcp (port 8001)" || echo "✗ search-mcp (not running?)"
+	@docker inspect research-agent-summarization-mcp-1 --format="{{.State.Health.Status}}" 2>/dev/null | grep -q healthy && echo "✓ summarization-mcp (port 8002)" || echo "✗ summarization-mcp (not running?)"
+	@docker inspect research-agent-knowledge-mcp-1 --format="{{.State.Health.Status}}" 2>/dev/null | grep -q healthy && echo "✓ knowledge-mcp (port 8003)" || echo "✗ knowledge-mcp (not running?)"
 	@curl -sf http://localhost:8000/health | python3 -m json.tool && echo "✓ orchestrator" || echo "✗ orchestrator (not running?)"
 	@echo ""
 
@@ -124,14 +125,21 @@ db-history: ## Show last 10 research queries stored in Postgres
 ######### Cache #########
 .PHONY: cache-flush cache-stats
 
-cache-flush: ## Flush all Redis search cache entries
-	$(COMPOSE_CMD) exec redis redis-cli --scan --pattern "search:*" | xargs -r \
-		$(COMPOSE_CMD) exec -T redis redis-cli DEL
+cache-flush: ## Flush search cache (call after EMBEDDING_MODEL change)
+	@$(COMPOSE_CMD) exec redis redis-cli --scan --pattern "search:*" | xargs -r $(COMPOSE_CMD) exec -T redis redis-cli DEL
 	@echo "Search cache flushed"
 
-cache-stats: ## Show Redis memory usage and key count
+cache-stats: ## Show cache hit rate, cost savings, and memory usage
+	@echo "=== Cache Stats ==="
 	@$(COMPOSE_CMD) exec redis redis-cli info memory | grep used_memory_human
-	@echo "Search keys: $$($(COMPOSE_CMD) exec redis redis-cli --scan --pattern 'search:*' | wc -l)"
+	@echo "Exact hits:    $$($(COMPOSE_CMD) exec redis redis-cli get cache_stats:default:exact_hits || echo 0)"
+	@echo "Semantic hits: $$($(COMPOSE_CMD) exec redis redis-cli get cache_stats:default:semantic_hits || echo 0)"
+	@echo "Misses:        $$($(COMPOSE_CMD) exec redis redis-cli get cache_stats:default:misses || echo 0)"
+	@echo "Cost saved:    $$($(COMPOSE_CMD) exec redis redis-cli get cache_stats:default:cost_saved_usd || echo 0) USD"
+	@echo "Search keys:   $$($(COMPOSE_CMD) exec redis redis-cli --scan --pattern 'search:*' | wc -l)"
+
+cache-drift: ## Check ChromaDB knowledge base for embedding drift
+	@curl -sf http://localhost:8003/mcp/health 2>/dev/null | python3 -m json.tool || 		$(COMPOSE_CMD) exec knowledge-mcp python3 -c "import chromadb; c=chromadb.HttpClient(host='chromadb',port=8000); col=c.get_or_create_collection('research_knowledge'); print('KB count:', col.count())"
 
 ######### Tests #########
 .PHONY: test test-cov test-integration
@@ -156,6 +164,18 @@ evals-dry: ## Run evals in dry-run mode (no LLM calls — just counts spans)
 
 evals-summary: ## Run only summary clarity evaluator
 	uv run python evals/phoenix_evals.py --only summary
+
+regression-smoke: ## Run smoke regression suite (5 cases, ~2 min, requires: make up)
+	uv run python evals/regression_runner.py --suite smoke
+
+regression-full: ## Run full regression suite (all cases, ~15 min, requires: make up)
+	uv run python evals/regression_runner.py --suite full --bert
+
+regression-save-baseline: ## Save current scores as new baseline (run after confirming quality)
+	uv run python evals/regression_runner.py --suite smoke --save-baseline
+
+regression-check: ## Compare against baseline — exits 1 if regression detected (CI gate)
+	uv run python evals/regression_runner.py --suite smoke --check-regression
 
 ######### Dev helpers #########
 .PHONY: lint format

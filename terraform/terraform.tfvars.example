@@ -16,3 +16,11 @@ max_instances = 3
 db_tier = "db-f1-micro"   # cheapest — upgrade to db-g1-small for prod
 db_name = "research_agent"
 db_user = "agent"
+
+# ── Cache & Embeddings ────────────────────────────────────────────────────────
+# Changing embedding_model invalidates all cache entries automatically.
+# Run make cache-flush after updating this value.
+embedding_model            = "text-embedding-3-small"
+cache_similarity_threshold = "0.94"
+chroma_drift_threshold     = "0.30"
+chroma_verify_threshold    = "0.75"

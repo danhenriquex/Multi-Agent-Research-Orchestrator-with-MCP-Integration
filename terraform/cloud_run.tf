@@ -52,6 +52,18 @@ resource "google_cloud_run_v2_service" "search_mcp" {
         value = local.redis_url
       }
       env {
+        name  = "EMBEDDING_MODEL"
+        value = var.embedding_model
+      }
+      env {
+        name  = "CACHE_NAMESPACE"
+        value = var.environment
+      }
+      env {
+        name  = "CACHE_SIMILARITY_THRESHOLD"
+        value = var.cache_similarity_threshold
+      }
+      env {
         name = "TAVILY_API_KEY"
         value_source {
           secret_key_ref {
@@ -203,6 +215,18 @@ resource "google_cloud_run_v2_service" "knowledge_mcp" {
       env {
         name  = "CHROMA_COLLECTION"
         value = "research_knowledge"
+      }
+      env {
+        name  = "EMBEDDING_MODEL"
+        value = var.embedding_model
+      }
+      env {
+        name  = "CHROMA_DRIFT_THRESHOLD"
+        value = var.chroma_drift_threshold
+      }
+      env {
+        name  = "CHROMA_VERIFY_THRESHOLD"
+        value = var.chroma_verify_threshold
       }
       env {
         name = "OPENAI_API_KEY"

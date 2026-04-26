@@ -1,0 +1,8 @@
+{
+  "rouge_l": 0.1801,
+  "bert_score_f1": 0.0,
+  "source_overlap": 0.95,
+  "length_pass_rate": 1.0,
+  "avg_answer_length": 1151,
+  "n": 5
+}
