@@ -35,7 +35,7 @@ Observable via Phoenix (LLM spans + eval scores) + LangSmith (prompt/token trace
 
 ### Why A2A + MCP together?
 
-**MCP (Model Context Protocol)** handles the vertical axis — agents calling tools.
+**MCP (Model Context Protocol)** Handles the vertical axis — agents calling tools.
 Each MCP server is independently deployable and replaceable. The agent never knows whether
 Search is backed by Tavily or a scraper — it just calls the tool.
 
